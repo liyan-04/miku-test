@@ -45,6 +45,7 @@ EOF
 DOMAIN=""
 APP=""
 STREAM=""
+SEG_COUNT_LIMIT=3
 
 # ========== 解析参数 ==========
 while [[ $# -gt 0 ]]; do
@@ -92,23 +93,33 @@ else
         SEG_COUNT=$(grep -c '#EXTINF' "$HLS_TMP" 2>/dev/null || echo 0)
         echo "    播放列表片段数: $SEG_COUNT"
 
-        # 下载第一个 ts 片段验证
-        TS_URL=$(grep -v '#' "$HLS_TMP" | head -1)
-        if [[ -n "$TS_URL" ]]; then
-            TS_FILE="/tmp/test_segment_$$.ts"
+        # 下载多个 ts 片段验证
+        TS_URLS=$(grep -v '#' "$HLS_TMP" | head -"$SEG_COUNT_LIMIT")
+        SUCCESS_COUNT=0
+        TOTAL_COUNT=0
+
+        while IFS= read -r TS_URL; do
+            [[ -z "$TS_URL" ]] && continue
+            TOTAL_COUNT=$((TOTAL_COUNT + 1))
+            TS_FILE="/tmp/test_segment_${TOTAL_COUNT}_$$.ts"
             # ts URL 是绝对路径，直接拼接域名
             curl -s --connect-timeout 5 "http://${DOMAIN}${TS_URL}" -o "$TS_FILE" 2>/dev/null
             if [[ -f "$TS_FILE" ]] && [[ -s "$TS_FILE" ]]; then
-                log_info "✓ HLS ts 片段下载成功: $(du -h "$TS_FILE" | cut -f1)"
-                log_info "  TS URL: http://${DOMAIN}${TS_URL}"
-                HLS_RESULT="成功"
+                log_info "✓ ts 片段 ${TOTAL_COUNT} 下载成功: $(du -h "$TS_FILE" | cut -f1)"
+                log_info "  文件名: $(basename "$TS_URL" | cut -d'?' -f1)"
+                rm -f "$TS_FILE"
+                SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
             else
-                log_warn "HLS ts 片段下载失败或为空"
-                log_warn "  TS URL: http://${DOMAIN}${TS_URL}"
-                HLS_RESULT="失败"
+                log_warn "ts 片段 ${TOTAL_COUNT} 下载失败"
             fi
+        done <<< "$TS_URLS"
+
+        echo "    片段下载: ${SUCCESS_COUNT}/${TOTAL_COUNT}"
+
+        if [[ $SUCCESS_COUNT -gt 0 ]]; then
+            HLS_RESULT="成功"
         else
-            HLS_RESULT="无片段"
+            HLS_RESULT="失败"
         fi
     else
         log_warn "HLS m3u8 获取失败（服务未开启或流不存在）"
