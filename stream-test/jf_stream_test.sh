@@ -102,15 +102,15 @@ if [[ ! -f "$PULL_HLS_SCRIPT" ]]; then
 fi
 
 # ========== 检查/生成视频文件 ==========
-if [[ -z "$VIDEO" ]] || [[ ! -f "$VIDEO" ]]; then
-    if [[ -z "$VIDEO" ]]; then
-        VIDEO="/tmp/test_stream_$$.mp4"
-    fi
-    log_info "生成测试视频: $VIDEO"
-    if command -v ffmpeg &>/dev/null; then
-        ffmpeg -f lavfi -i "testsrc=1280x720:rate=30" -f lavfi -i sine=frequency=440 -t 30 \
-               -c:v libx264 -c:a aac -f mp4 "$VIDEO" -y 2>/dev/null
-    fi
+if [[ -z "$VIDEO" ]]; then
+    VIDEO="$HOME/MikuVideos/test.mp4"
+fi
+
+if [[ ! -f "$VIDEO" ]]; then
+    log_info "视频文件不存在，生成测试视频..."
+    ffmpeg -f lavfi -i "testsrc=1280x720:rate=30" -f lavfi -i sine=frequency=440 -t 30 \
+           -c:v libx264 -c:a aac -f mp4 "$VIDEO" -y 2>/dev/null
+    log_info "测试视频已生成: $VIDEO"
 fi
 
 VIDEO_SIZE=$(du -h "$VIDEO" | cut -f1)

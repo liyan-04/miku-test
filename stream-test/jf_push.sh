@@ -98,6 +98,10 @@ if ! command -v ffmpeg &>/dev/null; then
 fi
 
 # ========== 检查/生成视频文件 ==========
+if [[ -z "$VIDEO" ]]; then
+    VIDEO="$HOME/MikuVideos/test.mp4"
+fi
+
 if [[ ! -f "$VIDEO" ]]; then
     log_info "视频文件不存在，生成测试视频..."
     VIDEO="/tmp/test_stream_$$.mp4"
