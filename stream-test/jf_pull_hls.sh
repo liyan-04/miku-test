@@ -3,11 +3,11 @@
 # JF HLS 拉流测试脚本
 #
 # 用法:
-#   ./jf_pull_hls.sh --domain <拉流域名> --app <app> --stream <stream> [--duration <秒>]
+#   ./jf_pull_hls.sh --domain <拉流域名> --app <app> --stream <stream> [--duration <秒>] [--ip <ip>]
 #
 # 示例:
 #   ./jf_pull_hls.sh --domain liyan-pull.test.com --app qa-test --stream liyan_test
-#   ./jf_pull_hls.sh --domain liyan-pull.test.com --app qa-test --stream liyan_test --duration 10
+#   ./jf_pull_hls.sh --domain liyan-pull.test.com --app qa-test --stream liyan_test --ip 10.210.32.28
 #
 
 set -e
@@ -30,7 +30,7 @@ show_help() {
 JF HLS 拉流测试脚本
 
 用法:
-  ./jf_pull_hls.sh --domain <domain> --app <app> --stream <stream> [--duration <秒>]
+  ./jf_pull_hls.sh --domain <domain> --app <app> --stream <stream> [--duration <秒>] [--ip <ip>]
 
 必填参数:
   --domain  拉流域名
@@ -38,11 +38,12 @@ JF HLS 拉流测试脚本
   --stream  流名称
 
 可选参数:
+  --ip       直接指定 IP（避免配置 hosts）
   --duration 拉流探测时长（默认 5 秒）
 
 示例:
   ./jf_pull_hls.sh --domain liyan-pull.test.com --app qa-test --stream liyan_test
-  ./jf_pull_hls.sh --domain liyan-pull.test.com --app qa-test --stream liyan_test --duration 10
+  ./jf_pull_hls.sh --domain liyan-pull.test.com --app qa-test --stream liyan_test --ip 10.210.32.28
 EOF
 }
 
@@ -51,6 +52,7 @@ DOMAIN=""
 APP=""
 STREAM=""
 DURATION=5
+CUSTOM_IP=""
 
 # ========== 解析参数 ==========
 while [[ $# -gt 0 ]]; do
@@ -59,6 +61,7 @@ while [[ $# -gt 0 ]]; do
         --app)      APP="$2";      shift 2 ;;
         --stream)   STREAM="$2";   shift 2 ;;
         --duration) DURATION="$2"; shift 2 ;;
+        --ip)       CUSTOM_IP="$2"; shift 2 ;;
         -h|--help)  show_help; exit 0 ;;
         *)          log_error "未知参数: $1"; show_help; exit 1 ;;
     esac
@@ -75,6 +78,13 @@ fi
 if ! command -v curl &>/dev/null; then
     log_error "curl 未安装"
     exit 1
+fi
+
+# ========== 构建 curl --resolve 参数 ==========
+CURL_RESOLVE=""
+if [[ -n "$CUSTOM_IP" ]]; then
+    CURL_RESOLVE="--resolve ${DOMAIN}:80:${CUSTOM_IP}"
+    log_info "使用自定义 IP: $CUSTOM_IP -> $DOMAIN"
 fi
 
 # ========== 检查 ffprobe ==========
@@ -96,7 +106,7 @@ touch "$KNOWN_TS_FILE"
 
 # Step 1: 获取首次请求响应（不跟随重定向，获取响应码和 Location）
 log_info "首次请求响应详情:"
-RESPONSE_CODE=$(curl -s -o /dev/null -w "%{http_code}" -D "$HLS_HEADERS" --connect-timeout 5 --max-time 10 "$URL_HLS" 2>/dev/null)
+RESPONSE_CODE=$(curl -s -o /dev/null -w "%{http_code}" -D "$HLS_HEADERS" $CURL_RESOLVE --connect-timeout 5 --max-time 10 "$URL_HLS" 2>/dev/null)
 log_info "  首次响应码: $RESPONSE_CODE"
 
 if [[ "$RESPONSE_CODE" == "302" ]] || [[ "$RESPONSE_CODE" == "301" ]]; then
@@ -117,7 +127,7 @@ SECOND=0
 while [[ $SECOND -lt $DURATION ]]; do
     SECOND=$((SECOND + 1))
 
-    curl -s -L --max-redirs 5 --connect-timeout 5 --max-time 5 "$URL_HLS" -o "$HLS_TMP" 2>/dev/null
+    curl -s -L --max-redirs 5 --connect-timeout 5 --max-time 5 $CURL_RESOLVE "$URL_HLS" -o "$HLS_TMP" 2>/dev/null
 
     if [[ -f "$HLS_TMP" ]] && grep -q "EXTM3U" "$HLS_TMP" 2>/dev/null; then
         # 获取 base URL（从 m3u8 中提取路径）
@@ -151,7 +161,7 @@ while [[ $SECOND -lt $DURATION ]]; do
                     log_info "  [${SECOND}s] 新 ts 片段: $TS_NAME"
 
                     # 下载 ts 片段
-                    curl -s -L --connect-timeout 5 --max-time 30 "$FULL_TS_URL" -o "$TS_FILE" 2>/dev/null
+                    curl -s -L --connect-timeout 5 --max-time 30 $CURL_RESOLVE "$FULL_TS_URL" -o "$TS_FILE" 2>/dev/null
 
                     if [[ -f "$TS_FILE" ]] && [[ -s "$TS_FILE" ]]; then
                         TS_SIZE=$(du -h "$TS_FILE" | cut -f1)

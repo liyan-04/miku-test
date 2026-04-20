@@ -3,11 +3,11 @@
 # JF FLV 拉流测试脚本
 #
 # 用法:
-#   ./jf_pull_flv.sh --domain <拉流域名> --app <app> --stream <stream> [--duration <秒>]
+#   ./jf_pull_flv.sh --domain <拉流域名> --app <app> --stream <stream> [--duration <秒>] [--ip <ip>]
 #
 # 示例:
 #   ./jf_pull_flv.sh --domain liyan-pull.test.com --app qa-test --stream liyan_test
-#   ./jf_pull_flv.sh --domain liyan-pull.test.com --app qa-test --stream liyan_test --duration 10
+#   ./jf_pull_flv.sh --domain liyan-pull.test.com --app qa-test --stream liyan_test --ip 10.210.32.28
 #
 
 set -e
@@ -30,7 +30,7 @@ show_help() {
 JF FLV 拉流测试脚本
 
 用法:
-  ./jf_pull_flv.sh --domain <domain> --app <app> --stream <stream> [--duration <秒>]
+  ./jf_pull_flv.sh --domain <domain> --app <app> --stream <stream> [--duration <秒>] [--ip <ip>]
 
 必填参数:
   --domain  拉流域名
@@ -38,11 +38,12 @@ JF FLV 拉流测试脚本
   --stream  流名称
 
 可选参数:
+  --ip       直接指定 IP（避免配置 hosts）
   --duration 拉流探测时长（默认 5 秒）
 
 示例:
   ./jf_pull_flv.sh --domain liyan-pull.test.com --app qa-test --stream liyan_test
-  ./jf_pull_flv.sh --domain liyan-pull.test.com --app qa-test --stream liyan_test --duration 10
+  ./jf_pull_flv.sh --domain liyan-pull.test.com --app qa-test --stream liyan_test --ip 10.210.32.28
 EOF
 }
 
@@ -51,6 +52,7 @@ DOMAIN=""
 APP=""
 STREAM=""
 DURATION=5
+CUSTOM_IP=""
 
 # ========== 解析参数 ==========
 while [[ $# -gt 0 ]]; do
@@ -59,6 +61,7 @@ while [[ $# -gt 0 ]]; do
         --app)      APP="$2";      shift 2 ;;
         --stream)   STREAM="$2";   shift 2 ;;
         --duration) DURATION="$2"; shift 2 ;;
+        --ip)       CUSTOM_IP="$2"; shift 2 ;;
         -h|--help)  show_help; exit 0 ;;
         *)          log_error "未知参数: $1"; show_help; exit 1 ;;
     esac
@@ -77,6 +80,13 @@ if ! command -v ffprobe &>/dev/null; then
     exit 1
 fi
 
+# ========== 构建 curl --resolve 参数 ==========
+CURL_RESOLVE=""
+if [[ -n "$CUSTOM_IP" ]]; then
+    CURL_RESOLVE="--resolve ${DOMAIN}:80:${CUSTOM_IP}"
+    log_info "使用自定义 IP: $CUSTOM_IP -> $DOMAIN"
+fi
+
 # ========== 构建拉流 URL ==========
 URL_FLV="http://${DOMAIN}/${APP}/${STREAM}.flv"
 
@@ -89,7 +99,7 @@ FLV_HEADERS="/tmp/flv_headers_$$.txt"
 FLV_DATA="/tmp/flv_data_$$.flv"
 
 # Step 1: 获取首次请求响应（不跟随重定向，获取响应码和 Location）
-RESPONSE_CODE=$(curl -s -o /dev/null -w "%{http_code}" -D "$FLV_HEADERS" --connect-timeout 5 --max-time 10 "$URL_FLV" 2>/dev/null)
+RESPONSE_CODE=$(curl -s -o /dev/null -w "%{http_code}" -D "$FLV_HEADERS" $CURL_RESOLVE --connect-timeout 5 --max-time 10 "$URL_FLV" 2>/dev/null)
 log_info "  首次响应码: $RESPONSE_CODE"
 
 if [[ "$RESPONSE_CODE" == "302" ]] || [[ "$RESPONSE_CODE" == "301" ]]; then
@@ -101,7 +111,7 @@ fi
 
 # Step 2: 下载 FLV 数据（duration 秒后 kill）
 log_info "下载 FLV 数据（${DURATION}s）..."
-curl -s -L --max-redirs 5 --connect-timeout 5 --max-time "$DURATION" "$URL_FLV" -o "$FLV_DATA" 2>/dev/null &
+curl -s -L --max-redirs 5 --connect-timeout 5 --max-time "$DURATION" $CURL_RESOLVE "$URL_FLV" -o "$FLV_DATA" 2>/dev/null &
 CURL_PID=$!
 
 sleep "$DURATION"
